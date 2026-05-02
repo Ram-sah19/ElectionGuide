@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ElectionGuide AI – Welcome</title>
+  <meta name="description" content="AI-powered election guide for first-time voters in India."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:   #020818;
+      --deep:   #040d2a;
+      --mid:    #071a4a;
+      --accent: #1e90ff;
+      --glow:   #2563eb;
+      --cyan:   #00d4ff;
+      --purple: #7c3aed;
+      --white:  #f0f8ff;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      font-family: 'Poppins', sans-serif;
+      background: var(--navy);
+      color: var(--white);
+    }
+
+    /* ── FULLSCREEN SCENE ── */
+    .scene {
+      position: relative;
+      width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ── BACKGROUND GRADIENT ── */
+    .bg-gradient {
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 20%, #0a1f5c 0%, transparent 65%),
+        radial-gradient(ellipse 60% 40% at 20% 80%, #0d2060 0%, transparent 60%),
+        linear-gradient(180deg, #040d2a 0%, #020818 60%, #000005 100%);
+      z-index: 0;
+    }
+
+    /* ── DOTTED WORLD MAP ── */
+    #mapCanvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      opacity: 0.18;
+      z-index: 1;
+    }
+
+    /* ── FLOATING PARTICLES ── */
+    #particleCanvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    /* ── PLANET HORIZON ── */
+    .planet {
+      position: absolute;
+      bottom: -38vh;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 140vw;
+      height: 80vh;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at 50% 10%, #0a2060 0%, #030b25 40%, #000 70%);
+      box-shadow:
+        0 -6px 60px rgba(30,144,255,0.35),
+        0 -2px 120px rgba(30,144,255,0.15),
+        inset 0 4px 30px rgba(0,212,255,0.08);
+      z-index: 3;
+    }
+    /* Horizon glow line */
+    .planet::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 10%; right: 10%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--cyan), var(--accent), var(--cyan), transparent);
+      border-radius: 50%;
+      filter: blur(3px);
+      box-shadow: 0 0 20px var(--cyan), 0 0 40px var(--accent);
+    }
+
+    /* ── CARD GLOW (under card) ── */
+    .card-glow {
+      position: absolute;
+      bottom: 30vh;
+      left: 50%; transform: translateX(-50%);
+      width: 500px; height: 80px;
+      background: radial-gradient(ellipse, rgba(30,144,255,0.5) 0%, transparent 70%);
+      filter: blur(20px);
+      z-index: 4;
+      animation: glowPulse 3s ease-in-out infinite;
+    }
+    @keyframes glowPulse {
+      0%,100% { opacity: 0.7; transform: translateX(-50%) scaleX(1); }
+      50%      { opacity: 1;   transform: translateX(-50%) scaleX(1.08); }
+    }
+
+    /* ── GLASS CARD ── */
+    .card {
+      position: relative;
+      z-index: 5;
+      width: min(640px, 88vw);
+      background: rgba(8, 20, 60, 0.55);
+      backdrop-filter: blur(24px) saturate(140%);
+      -webkit-backdrop-filter: blur(24px) saturate(140%);
+      border: 1px solid rgba(100,180,255,0.22);
+      border-radius: 20px;
+      padding: 40px 44px 32px;
+      box-shadow:
+        0 0 0 1px rgba(30,144,255,0.08),
+        0 8px 40px rgba(0,0,0,0.6),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+      animation: fadeSlideIn 1s cubic-bezier(0.22,1,0.36,1) both;
+    }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(28px); }
+      to   { opacity: 1; transform: translateY(0);    }
+    }
+
+    /* Card shine edge */
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 20px;
+      background: linear-gradient(135deg, rgba(30,144,255,0.08) 0%, transparent 50%, rgba(124,58,237,0.06) 100%);
+      pointer-events: none;
+    }
+
+    /* ── CLOSE BTN ── */
+    .card-close {
+      position: absolute;
+      top: 14px; right: 14px;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.5);
+      font-size: 0.7rem;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+      font-family: 'Poppins', sans-serif;
+    }
+    .card-close:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+    /* ── CARD HEADING ── */
+    .card-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 12px;
+      opacity: 0;
+      animation: fadeIn 0.5s 0.6s ease forwards;
+    }
+    .card-title {
+      font-size: clamp(1.2rem, 3vw, 1.55rem);
+      font-weight: 700;
+      line-height: 1.4;
+      color: #fff;
+      margin-bottom: 28px;
+      opacity: 0;
+      animation: fadeIn 0.5s 0.8s ease forwards;
+    }
+    .card-title em {
+      font-style: normal;
+      background: linear-gradient(90deg, var(--cyan), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    @keyframes fadeIn { to { opacity: 1; } }
+
+    /* ── WAVEFORM ── */
+    #waveCanvas {
+      display: block;
+      width: 100%;
+      height: 90px;
+      margin-bottom: 4px;
+      opacity: 0;
+      animation: fadeIn 0.6s 1s ease forwards;
+    }
+
+    /* ── DIVIDER LINE ── */
+    .wave-line {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(30,144,255,0.3), transparent);
+      margin-bottom: 28px;
+    }
+
+    /* ── AI ICON BUTTON ── */
+    .ai-btn-wrap {
+      display: flex;
+      justify-content: center;
+      opacity: 0;
+      animation: fadeIn 0.5s 1.2s ease forwards;
+    }
+    .ai-btn {
+      position: relative;
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1e5799, #1e90ff);
+      border: 2px solid rgba(0,212,255,0.5);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem;
+      box-shadow:
+        0 0 0 6px rgba(30,144,255,0.1),
+        0 0 24px rgba(30,144,255,0.6),
+        0 0 60px rgba(30,144,255,0.25);
+      transition: all 0.25s ease;
+      text-decoration: none;
+    }
+    .ai-btn:hover {
+      transform: scale(1.1);
+      box-shadow:
+        0 0 0 8px rgba(30,144,255,0.15),
+        0 0 36px rgba(30,144,255,0.8),
+        0 0 80px rgba(30,144,255,0.35);
+    }
+    /* Orbit ring */
+    .ai-btn::before {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,212,255,0.25);
+      animation: orbit 3s linear infinite;
+    }
+    @keyframes orbit {
+      from { transform: rotate(0deg) scale(1); }
+      50%  { transform: rotate(180deg) scale(1.04); }
+      to   { transform: rotate(360deg) scale(1); }
+    }
+
+    /* ── ENTER LABEL ── */
+    .enter-label {
+      text-align: center;
+      margin-top: 14px;
+      font-size: 0.72rem;
+      color: rgba(200,220,255,0.45);
+      letter-spacing: 0.08em;
+      opacity: 0;
+      animation: fadeIn 0.5s 1.4s ease forwards;
+    }
+  </style>
+</head>
+<body>
+<div class="scene" role="main" aria-label="ElectionGuide AI Welcome Screen">
+
+  <!-- Background -->
+  <div class="bg-gradient" aria-hidden="true"></div>
+  <canvas id="mapCanvas"      aria-hidden="true"></canvas>
+  <canvas id="particleCanvas" aria-hidden="true"></canvas>
+
+  <!-- Planet surface -->
+  <div class="planet" aria-hidden="true"></div>
+
+  <!-- Glow under card -->
+  <div class="card-glow" aria-hidden="true"></div>
+
+  <!-- Glass Card -->
+  <article class="card" role="dialog" aria-label="ElectionGuide AI Introduction">
+    <button class="card-close" onclick="window.location='index.html'" aria-label="Close and go to app">✕</button>
+
+    <div class="card-label">AI · Powered · Neutral</div>
+    <h1 class="card-title">
+      Hi, I'm <em>ElectionGuide AI</em>,<br/>
+      your smart vote assistant.
+    </h1>
+
+    <!-- Live waveform -->
+    <canvas id="waveCanvas" aria-label="AI voice waveform animation"></canvas>
+    <div class="wave-line" aria-hidden="true"></div>
+
+    <!-- AI Icon Button -->
+    <div class="ai-btn-wrap">
+      <a href="index.html" class="ai-btn" aria-label="Enter ElectionGuide AI" role="button">🗳️</a>
+    </div>
+    <p class="enter-label">TAP TO ENTER</p>
+  </article>
+
+</div>
+
+<script>
+// ── DOTTED WORLD MAP ──────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('mapCanvas');
+  const ctx    = canvas.getContext('2d');
+  // Simplified world map dot coordinates (normalized 0–1)
+  const dots = [
+    // North America
+    [0.08,0.22],[0.10,0.20],[0.12,0.18],[0.14,0.20],[0.16,0.22],[0.18,0.24],
+    [0.10,0.26],[0.12,0.28],[0.14,0.28],[0.16,0.26],[0.18,0.28],[0.20,0.26],
+    [0.12,0.32],[0.14,0.32],[0.16,0.30],[0.18,0.32],[0.20,0.30],[0.22,0.30],
+    [0.14,0.36],[0.16,0.36],[0.18,0.34],[0.20,0.34],[0.22,0.34],[0.24,0.32],
+    // Europe
+    [0.42,0.18],[0.44,0.18],[0.46,0.16],[0.48,0.18],[0.50,0.18],[0.52,0.18],
+    [0.42,0.22],[0.44,0.22],[0.46,0.22],[0.48,0.22],[0.50,0.20],[0.52,0.20],
+    [0.44,0.26],[0.46,0.26],[0.48,0.24],[0.50,0.24],[0.52,0.22],
+    // Africa
+    [0.44,0.32],[0.46,0.32],[0.48,0.32],[0.50,0.30],[0.52,0.30],
+    [0.44,0.36],[0.46,0.36],[0.48,0.36],[0.50,0.34],[0.52,0.34],
+    [0.44,0.40],[0.46,0.40],[0.48,0.40],[0.50,0.40],[0.52,0.38],
+    [0.46,0.44],[0.48,0.44],[0.50,0.44],[0.52,0.42],
+    [0.46,0.48],[0.48,0.48],[0.50,0.46],
+    // Asia
+    [0.56,0.18],[0.58,0.18],[0.60,0.16],[0.62,0.18],[0.64,0.18],[0.66,0.18],[0.68,0.18],
+    [0.56,0.22],[0.58,0.22],[0.60,0.22],[0.62,0.22],[0.64,0.22],[0.66,0.20],[0.68,0.20],[0.70,0.22],
+    [0.56,0.26],[0.58,0.26],[0.60,0.26],[0.62,0.24],[0.64,0.26],[0.66,0.26],[0.68,0.26],[0.70,0.26],[0.72,0.24],
+    [0.58,0.30],[0.60,0.30],[0.62,0.30],[0.64,0.30],[0.66,0.28],[0.68,0.30],[0.70,0.30],[0.72,0.28],
+    [0.60,0.34],[0.62,0.34],[0.64,0.32],[0.66,0.34],[0.68,0.34],[0.70,0.32],
+    // Australia
+    [0.70,0.48],[0.72,0.46],[0.74,0.46],[0.76,0.48],[0.78,0.48],
+    [0.70,0.52],[0.72,0.50],[0.74,0.50],[0.76,0.52],[0.78,0.50],
+    // South America
+    [0.24,0.36],[0.26,0.36],[0.28,0.34],[0.30,0.36],
+    [0.24,0.40],[0.26,0.40],[0.28,0.40],[0.30,0.38],
+    [0.24,0.44],[0.26,0.44],[0.28,0.44],[0.30,0.42],
+    [0.26,0.48],[0.28,0.48],[0.30,0.48],
+    [0.26,0.52],[0.28,0.52],
+  ];
+
+  function draw() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    dots.forEach(([nx, ny]) => {
+      const x = nx * canvas.width;
+      const y = ny * canvas.height;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#4fa8ff';
+      ctx.fill();
+    });
+  }
+  draw();
+  window.addEventListener('resize', draw);
+})();
+
+// ── FLOATING PARTICLES ────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('particleCanvas');
+  const ctx    = canvas.getContext('2d');
+  const COUNT  = 55;
+  let particles = [];
+
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function createParticle() {
+    return {
+      x:     Math.random() * canvas.width,
+      y:     Math.random() * canvas.height * 0.75,
+      r:     Math.random() * 1.6 + 0.4,
+      vx:    (Math.random() - 0.5) * 0.25,
+      vy:    -Math.random() * 0.3 - 0.05,
+      alpha: Math.random() * 0.55 + 0.1,
+      hue:   Math.random() > 0.6 ? 200 : 210,
+    };
+  }
+
+  for (let i = 0; i < COUNT; i++) particles.push(createParticle());
+
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach((p, i) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue}, 90%, 70%, ${p.alpha})`;
+      ctx.fill();
+      p.x += p.vx;
+      p.y += p.vy;
+      p.alpha -= 0.0008;
+      if (p.alpha <= 0 || p.y < -10) particles[i] = createParticle();
+    });
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+
+// ── AI WAVEFORM ───────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('waveCanvas');
+  const ctx    = canvas.getContext('2d');
+  let t        = 0;
+
+  function resize() {
+    canvas.width  = canvas.offsetWidth * window.devicePixelRatio;
+    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function drawWave() {
+    const W  = canvas.offsetWidth;
+    const H  = canvas.offsetHeight;
+    const CY = H / 2;
+
+    ctx.clearRect(0, 0, W, H);
+    t += 0.022;
+
+    // Multiple wave layers
+    const waves = [
+      { amp: 26, freq: 2.2, speed: 1.0,  color: 'rgba(0,212,255,0.85)', lw: 1.5 },
+      { amp: 18, freq: 3.4, speed: 1.5,  color: 'rgba(30,144,255,0.6)', lw: 1.2 },
+      { amp: 10, freq: 5.0, speed: 2.2,  color: 'rgba(124,58,237,0.45)', lw: 1.0 },
+      { amp: 6,  freq: 7.0, speed: 3.0,  color: 'rgba(0,212,255,0.3)',  lw: 0.8 },
+    ];
+
+    waves.forEach(({ amp, freq, speed, color, lw }) => {
+      ctx.beginPath();
+      ctx.lineWidth   = lw;
+      ctx.strokeStyle = color;
+      ctx.shadowColor = 'rgba(0,212,255,0.6)';
+      ctx.shadowBlur  = 8;
+
+      for (let x = 0; x <= W; x += 2) {
+        const nx = x / W;
+        // Bell envelope — big in center, flat on sides
+        const env = Math.exp(-Math.pow((nx - 0.5) * 3.2, 2));
+        const y   = CY + Math.sin(nx * Math.PI * freq + t * speed) * amp * env;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    });
+
+    // Centre peak line
+    ctx.beginPath();
+    ctx.lineWidth   = 0.5;
+    ctx.strokeStyle = 'rgba(0,212,255,0.15)';
+    ctx.shadowBlur  = 0;
+    ctx.moveTo(0, CY);
+    ctx.lineTo(W, CY);
+    ctx.stroke();
+
+    requestAnimationFrame(drawWave);
+  }
+  drawWave();
+})();
+</script>
+</body>
+</html>
