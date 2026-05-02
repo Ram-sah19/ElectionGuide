@@ -8,6 +8,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+
+  <!-- Google Analytics GA4 -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-XXXXXXXXXX', { anonymize_ip: true });
+  </script>
+
+  <!-- Firebase SDK v9 compat (Google Cloud backend) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics-compat.js"></script>
+
+  <!-- Google Translate Widget -->
+  <script src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
+
+  <!-- Google reCAPTCHA v3 -->
+  <script src="https://www.google.com/recaptcha/api.js?render=6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" async defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -268,6 +287,12 @@
   <canvas id="mapCanvas"      aria-hidden="true"></canvas>
   <canvas id="particleCanvas" aria-hidden="true"></canvas>
 
+  <!-- Google Translate (language selector) positioned top-right -->
+  <div id="google-translate-element"
+       aria-label="Language selector"
+       style="position:absolute;top:12px;right:12px;z-index:10;font-size:0.72rem;"
+       role="navigation"></div>
+
   <!-- Planet surface -->
   <div class="planet" aria-hidden="true"></div>
 
@@ -457,6 +482,41 @@
     requestAnimationFrame(drawWave);
   }
   drawWave();
+})();
+</script>
+
+<script>
+// ── FIREBASE + GOOGLE SERVICES INIT (landing page) ───────────────────────
+(function() {
+  // Google Translate callback
+  window.googleTranslateElementInit = function() {
+    if (typeof google === 'undefined' || !google.translate) return;
+    new google.translate.TranslateElement(
+      { pageLanguage: 'en', includedLanguages: 'hi,ta,te,bn,mr,gu,kn,ml,pa,ur,en',
+        layout: google.translate.TranslateElement.InlineLayout.SIMPLE, autoDisplay: false },
+      'google-translate-element'
+    );
+  };
+
+  // Firebase init (mirrors firebase-config.js for landing page)
+  if (typeof firebase !== 'undefined') {
+    try {
+      const app = firebase.initializeApp({
+        apiKey:        "AIzaSyDEMO-ElectionGuide-ReplaceWithYours",
+        authDomain:    "electionguide-ai.firebaseapp.com",
+        projectId:     "electionguide-ai",
+        appId:         "1:123456789012:web:abcdef1234567890abcdef",
+        measurementId: "G-ELECTIONGUIDE1",
+      }, 'landing');
+      const analytics = firebase.analytics(app);
+      analytics.logEvent('page_view', { page_title: 'Landing', page_location: '/' });
+    } catch(e) { /* already initialised or network unavailable */ }
+  }
+
+  // GA4 landing page view
+  if (typeof gtag === 'function') {
+    gtag('event', 'page_view', { page_title: 'Landing', page_location: '/' });
+  }
 })();
 </script>
 </body>

@@ -9,7 +9,7 @@
   <meta name="author" content="ElectionGuide AI"/>
   <meta property="og:title" content="ElectionGuide AI – India Voter Assistant"/>
   <meta property="og:type" content="website"/>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://api.openai.com https://www.google-analytics.com; img-src 'self' data: https:;"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://fonts.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://translate.google.com https://translate.googleapis.com https://apis.google.com https://www.googleapis.com https://cdn.firebase.com https://www.gstatic.com/firebasejs/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://translate.googleapis.com https://translate.google.com; font-src https://fonts.gstatic.com; frame-src https://maps.google.com https://www.google.com https://www.recaptcha.net; connect-src 'self' https://api.openai.com https://www.google-analytics.com https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://firebase.googleapis.com https://identitytoolkit.googleapis.com; img-src 'self' data: https: https://translate.google.com;"/>
   <meta http-equiv="X-Content-Type-Options" content="nosniff"/>
 
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -24,6 +24,17 @@
     gtag('js', new Date());
     gtag('config', 'G-XXXXXXXXXX', { anonymize_ip: true });
   </script>
+
+  <!-- Firebase SDK v9 compat (Google Cloud backend) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <!-- Google Translate Widget -->
+  <script src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
+
+  <!-- Google reCAPTCHA v3 -->
+  <script src="https://www.google.com/recaptcha/api.js?render=6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" async defer></script>
 
   <link rel="stylesheet" href="style.css"/>
 </head>
@@ -66,6 +77,10 @@
           <span class="nav-icon" aria-hidden="true">💬</span><span>Ask Assistant</span>
         </button>
       </nav>
+
+      <!-- Google Translate Widget Container -->
+      <div id="google-translate-element" aria-label="Language selector" role="navigation"
+           style="padding:10px 14px 4px; font-size:0.72rem;"></div>
 
       <div class="sidebar-footer" role="status" aria-live="polite">
         <div class="status-dot" aria-hidden="true"></div>
@@ -177,6 +192,23 @@
             <button onclick="sendQuick('When is voting day?')" aria-label="Ask: When is voting?">When is voting?</button>
             <button onclick="sendQuick('How to check my voter ID status?')" aria-label="Ask: Check voter ID">Check voter ID</button>
             <button onclick="sendQuick('Am I eligible to vote?')" aria-label="Ask: Am I eligible?">Am I eligible?</button>
+            <button onclick="findBoothOnMap()" aria-label="Find my polling booth on Google Maps">📍 Find My Booth</button>
+          </div>
+
+          <!-- Google Maps Polling Booth Finder Panel -->
+          <div id="booth-map-panel" hidden aria-hidden="true"
+               style="padding:0 12px 8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <span style="font-size:0.8rem;font-weight:600;color:#4fa8ff;">📍 Find Your Polling Booth</span>
+              <button onclick="document.getElementById('booth-map-panel').hidden=true;"
+                      aria-label="Close map"
+                      style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1rem;">✕</button>
+            </div>
+            <div id="booth-map-container" style="border-radius:12px;overflow:hidden;"
+                 aria-label="Google Maps polling booth finder" role="complementary">
+              <p style="color:#8aa;font-size:0.8rem;padding:8px;">Loading map…</p>
+            </div>
+            <p style="font-size:0.68rem;color:#667;margin-top:6px;">Powered by Google Maps</p>
           </div>
 
           <div class="chat-input-bar" role="form" aria-label="Send a message">
@@ -189,6 +221,9 @@
               </svg>
             </button>
           </div>
+          <!-- Google reCAPTCHA trust badge -->
+          <div id="recaptcha-badge-ui" aria-live="polite"
+               style="text-align:center;padding:4px 0 2px;"></div>
 
         </div>
       </section>
@@ -271,6 +306,12 @@
     if (typeof OPENAI_API_KEY === 'undefined') window.OPENAI_API_KEY = '';
   </script>
   <script src="config.js" onerror="console.info('config.js not found — using local fallback responses.')"></script>
+  <!-- Utility module (pure helpers) -->
+  <script src="utils.js"></script>
+  <!-- Firebase configuration & helpers (Google Cloud backend) -->
+  <script src="firebase-config.js"></script>
+  <!-- Google Services: Translate widget, Maps embed, reCAPTCHA -->
+  <script src="google-services.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

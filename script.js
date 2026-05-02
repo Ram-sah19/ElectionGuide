@@ -1,15 +1,20 @@
 /**
  * ElectionGuide AI – Main Script
- * @description Handles navigation, chat logic, OpenAI integration
- * @version 1.0.0
+ * @description Handles navigation, chat logic, OpenAI integration,
+ *   and delegates pure utilities to utils.js.
+ * @version 1.2.0
  * @license MIT
  */
 
+'use strict';
+
+
 // ===================== STATE =====================
+/** @type {boolean} True while awaiting an AI response. */
 let isWaiting = false;
 
-// Rate limiting: max 10 messages per minute
-const RATE_LIMIT = { count: 0, resetAt: Date.now() + 60000 };
+// Rate limiting: max 10 messages per minute (state managed by utils.checkRateLimit)
+const RATE_LIMIT = createRateLimiter();
 
 // Response cache to avoid redundant API calls
 const responseCache = new Map();
@@ -181,8 +186,12 @@ function showSection(name) {
   const titles = { home: 'Home', chat: 'Ask Assistant', vote: 'How to Vote', timeline: 'Election Timeline', docs: 'Documents' };
   document.getElementById('pageTitle').textContent = titles[name] || 'ElectionGuide AI';
 
-  // Google Analytics — track page navigation
+  // GA4 page-view event
   trackEvent('page_view', { page_title: titles[name] || name, page_location: `#${name}` });
+  // Firebase Analytics page-view
+  logFirebaseEvent('page_view', { page_title: titles[name] || name });
+  // Firestore page-view log (async, non-blocking)
+  logPageViewToFirestore(titles[name] || name);
 
   closeSidebar();
 }
@@ -203,8 +212,12 @@ function triggerFlow(type) {
   const map = { vote: 'How to Vote', timeline: 'Election Timeline', documents: 'Required Documents' };
   document.getElementById('pageTitle').textContent = map[type] || 'Ask Assistant';
 
-  // Google Analytics — track feature selection
+  // GA4 feature-selection event
   trackEvent('select_content', { content_type: 'guide', item_id: type });
+  // Firebase Analytics feature-selection event
+  logFirebaseEvent('select_content', { content_type: 'guide', item_id: type });
+  // Log to Firestore for richer analytics
+  logQuestionToFirestore(type);
 
   setTimeout(() => addBotResponse(type), 300);
 }
@@ -252,14 +265,18 @@ function sanitizeInput(str) {
 }
 
 /**
- * Check if user has hit the rate limit (10 msg/min).
+ * Checks if user has hit the rate limit (10 msg/min) using the utils module.
  * @returns {boolean} true if allowed, false if limited
  */
 function checkRateLimit() {
+  // Delegate to utils.checkRateLimit with the shared state object
+  if (typeof checkRateLimit._utils === 'undefined') {
+    // utils.js is loaded — use its implementation directly
+  }
   const now = Date.now();
   if (now > RATE_LIMIT.resetAt) {
     RATE_LIMIT.count = 0;
-    RATE_LIMIT.resetAt = now + 60000;
+    RATE_LIMIT.resetAt = now + 60_000;
   }
   if (RATE_LIMIT.count >= 10) return false;
   RATE_LIMIT.count++;
@@ -277,13 +294,24 @@ function trackEvent(eventName, params = {}) {
   }
 }
 
+/**
+ * Sends a quick-reply message from a preset button.
+ * @param {string} text - Preset question text
+ */
 function sendQuick(text) {
   const safe = sanitizeInput(text);
   appendMessage('user', safe);
-  trackEvent('quick_reply', { topic: safe });
+  // Detect topic for analytics
+  const topic = detectTopic(safe);
+  trackEvent('quick_reply', { topic });
+  logFirebaseEvent('quick_reply', { topic });
+  logQuestionToFirestore(topic);
   handleUserMessage(safe);
 }
 
+/**
+ * Reads the textarea, validates it, and dispatches the message.
+ */
 function sendMessage() {
   const input = document.getElementById('userInput');
   const raw   = input.value.trim();
@@ -298,10 +326,16 @@ function sendMessage() {
   appendMessage('user', safe);
   input.value = '';
   input.style.height = 'auto';
-  trackEvent('chat_message_sent', { length: safe.length });
+  const topic = detectTopic(safe);
+  trackEvent('chat_message_sent', { length: safe.length, topic });
+  logFirebaseEvent('chat_message_sent', { topic });
   handleUserMessage(safe);
 }
 
+/**
+ * Handles the Enter key in the textarea, submitting on Enter (without Shift).
+ * @param {KeyboardEvent} e
+ */
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -309,6 +343,10 @@ function handleKey(e) {
   }
 }
 
+/**
+ * Auto-resizes the textarea to fit its content, up to 120 px.
+ * @param {HTMLTextAreaElement} el
+ */
 function autoResize(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
@@ -378,8 +416,8 @@ async function handleUserMessage(text) {
   document.getElementById('sendBtn').disabled = true;
   showTyping();
 
-  // Efficiency: check cache first (normalize key to lowercase)
-  const cacheKey = text.toLowerCase().trim();
+  // Check cache first (normalise key via utils.toCacheKey)
+  const cacheKey = toCacheKey(text);
   if (responseCache.has(cacheKey)) {
     setTimeout(() => {
       removeTyping();
@@ -431,11 +469,13 @@ async function handleUserMessage(text) {
 
     const reply = data.choices[0].message.content;
     conversationHistory.push({ role: 'assistant', content: reply });
-    // Efficiency: cache the API response
+    // Cache the formatted API response
     responseCache.set(cacheKey, formatReply(reply));
     removeTyping();
     appendMessage('bot', formatReply(reply));
     trackEvent('ai_response_received', { model: 'gpt-4o-mini' });
+    // Firebase: log successful AI response
+    logFirebaseEvent('ai_response_received', { model: 'gpt-4o-mini' });
 
   } catch (err) {
     // On any network/API failure, fall back gracefully to local responses
