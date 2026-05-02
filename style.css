@@ -46,13 +46,17 @@
   --r2: 9px;
 }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  height: 100%;
+  overflow: hidden;
+}
 body {
   font-family: 'Poppins', sans-serif;
   background: var(--navy);
   color: var(--text);
-  min-height: 100vh;
-  overflow-x: hidden;
+  height: 100%;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -93,7 +97,9 @@ body {
 
 /* ── APP LAYOUT ── */
 .app-wrapper {
-  display: flex; min-height: 100vh;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
   position: relative; z-index: 5;
 }
 
@@ -165,7 +171,10 @@ body {
 /* ── MAIN CONTENT ── */
 .main-content {
   flex: 1; margin-left: var(--sw);
-  display: flex; flex-direction: column; min-height: 100vh;
+  display: flex; flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ── TOP BAR ── */

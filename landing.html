@@ -159,22 +159,6 @@
       pointer-events: none;
     }
 
-    /* ── CLOSE BTN ── */
-    .card-close {
-      position: absolute;
-      top: 14px; right: 14px;
-      width: 22px; height: 22px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.12);
-      color: rgba(255,255,255,0.5);
-      font-size: 0.7rem;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.2s;
-      font-family: 'Poppins', sans-serif;
-    }
-    .card-close:hover { background: rgba(255,255,255,0.15); color: #fff; }
 
     /* ── CARD HEADING ── */
     .card-label {
@@ -300,8 +284,7 @@
   <div class="card-glow" aria-hidden="true"></div>
 
   <!-- Glass Card -->
-  <article class="card" role="dialog" aria-label="ElectionGuide AI Introduction">
-    <button class="card-close" onclick="window.location='/app'" aria-label="Close and go to app">✕</button>
+  <article class="card" role="region" aria-label="ElectionGuide AI Introduction">
 
     <div class="card-label">AI · Powered · Neutral</div>
     <h1 class="card-title">
@@ -315,7 +298,7 @@
 
     <!-- AI Icon Button -->
     <div class="ai-btn-wrap">
-      <a href="/app" class="ai-btn" aria-label="Enter ElectionGuide AI" role="button">🗳️</a>
+      <a href="index.html" class="ai-btn" aria-label="Enter ElectionGuide AI" role="button">🗳️</a>
     </div>
     <p class="enter-label">TAP TO ENTER</p>
   </article>
