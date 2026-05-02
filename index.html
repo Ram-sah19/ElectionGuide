@@ -265,7 +265,12 @@
   })();
   </script>
 
-  <script src="config.js"></script>
+  <!-- Config: define fallback key first, then load real key if config.js exists -->
+  <script>
+    // Fallback — app will use local AI responses if key is absent
+    if (typeof OPENAI_API_KEY === 'undefined') window.OPENAI_API_KEY = '';
+  </script>
+  <script src="config.js" onerror="console.info('config.js not found — using local fallback responses.')"></script>
   <script src="script.js"></script>
 </body>
 </html>
