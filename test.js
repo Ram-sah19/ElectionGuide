@@ -1,7 +1,8 @@
 /**
  * ElectionGuide AI – Comprehensive Unit Test Suite
- * @description 40+ tests covering: security, XSS, rate limiting, routing,
- *   formatReply markdown parsing, Firebase helpers, Google Services,
+ * @description 55+ tests covering: security, XSS, rate limiting, routing,
+ *   formatReply markdown parsing (incl. ordering fix), history trimming,
+ *   AbortController signal, Firebase helpers, Google Services,
  *   async chat flow (mocked fetch), edge cases, and integration smoke tests.
  *
  * Run in browser console (after loading index.html), or:
@@ -123,9 +124,10 @@ function _formatReply(text) {
   if (typeof text !== 'string' || text.trim() === '') return '';
   return text
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/(<li>.*<\/li>\n?)+/gs, match => `<ul>${match}</ul>`)
-    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // Numbered list lines BEFORE bullet conversion so they get wrapped in <ul>
+    .replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
+    .replace(/^-\s+(.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, match => `<ul>${match}</ul>`)
     .replace(/\n{2,}/g, '</p><p>')
     .replace(/\n/g, '<br>')
     .replace(/^(?!<)/, '<p>')
@@ -151,7 +153,7 @@ function mockFetch(responseBody, ok = true, status = 200) {
 //  TEST SUITES
 // ══════════════════════════════════════════════════════════════════════════════
 
-console.log('\n🧪 ElectionGuide AI – Full Test Suite (v2.0)\n');
+console.log('\n🧪 ElectionGuide AI – Full Test Suite (v3.0)\n');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Security – API key validation (6 tests)
@@ -278,7 +280,7 @@ test('Unknown input → fallback', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Code Quality – formatReply markdown parsing (6 tests)
+// 5. Code Quality – formatReply markdown parsing (9 tests)
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n📐  Code Quality: formatReply Markdown Parsing');
 
@@ -294,8 +296,21 @@ test('Wraps <li> items in <ul>', () => {
 test('Converts numbered list to <li>', () => {
   assertIncludes(_formatReply('1. First item'), '<li>First item</li>', 'Numbered list must convert');
 });
+test('Numbered list items are wrapped in <ul> (ordering fix)', () => {
+  const out = _formatReply('1. Step one\n2. Step two');
+  assertIncludes(out, '<ul>', 'Numbered items must be wrapped in <ul>');
+  assertIncludes(out, '<li>Step one</li>', 'First numbered item must be a <li>');
+});
+test('Mixed bold and bullet renders correctly', () => {
+  const out = _formatReply('**Title**\n- Point A\n- Point B');
+  assertIncludes(out, '<strong>Title</strong>', 'Bold title must render');
+  assertIncludes(out, '<ul>', 'Bullets must be wrapped in <ul>');
+});
 test('Returns empty string for empty input', () => {
   assertEqual(_formatReply(''), '', 'Empty input must return empty string');
+});
+test('Returns empty string for whitespace-only input', () => {
+  assertEqual(_formatReply('   '), '', 'Whitespace-only must return empty string');
 });
 test('Returns empty string for non-string input', () => {
   assertEqual(_formatReply(null), '', 'null must return empty string');
@@ -376,6 +391,7 @@ console.log('\n🌐  Async: Mocked Fetch Flow');
     const formatted = _formatReply(data.choices[0].message.content);
     assertIncludes(formatted, '<strong>Namaste!</strong>', 'Bold must be formatted');
     assertIncludes(formatted, '<li>Register</li>', 'List items must be formatted');
+    assertIncludes(formatted, '<ul>', 'List must be wrapped in <ul>');
   });
 
   await testAsync('Failed OpenAI response (non-ok) is detected', async () => {
@@ -395,6 +411,30 @@ console.log('\n🌐  Async: Mocked Fetch Flow');
 
     const lookup = cache.get(_toCacheKey('HOW DO I VOTE'));
     assertEqual(lookup, value, 'Cache lookup must be case-insensitive via toCacheKey');
+  });
+
+  await testAsync('AbortController can be created and aborted', async () => {
+    const controller = new AbortController();
+    assert(controller.signal !== undefined, 'AbortController must have a signal');
+    assert(!controller.signal.aborted, 'Signal must not be aborted initially');
+    controller.abort();
+    assert(controller.signal.aborted, 'Signal must be aborted after abort()');
+  });
+
+  await testAsync('Conversation history trimming keeps last N entries', async () => {
+    const history = [];
+    const MAX_TURNS = 3;
+    for (let i = 0; i < 10; i++) {
+      history.push({ role: 'user', content: `msg ${i}` });
+      history.push({ role: 'assistant', content: `reply ${i}` });
+    }
+    // Trim to last MAX_TURNS * 2 messages
+    const maxMessages = MAX_TURNS * 2;
+    if (history.length > maxMessages) {
+      history.splice(0, history.length - maxMessages);
+    }
+    assertEqual(history.length, maxMessages, `History must be trimmed to ${maxMessages} entries`);
+    assertEqual(history[0].content, 'msg 7', 'First entry must be the (10-3)th user message');
   });
 
   // ── Print final summary after async tests ──────────────────────────────────

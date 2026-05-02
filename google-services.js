@@ -1,10 +1,12 @@
 /**
  * ElectionGuide AI – Google Services Integration
- * @description Integrates three distinct Google services:
+ * @description Integrates four distinct Google services:
  *   1. Google Translate Element  — multilingual UI (Hindi, Tamil, Telugu, Bengali, …)
  *   2. Google Maps Embed         — polling-booth finder via iframe embed
  *   3. reCAPTCHA v3 token fetch  — bot-abuse signal for the chat input
+ *   4. Google Trust Badge        — reCAPTCHA branding per Google guidelines
  * @module google-services
+ * @version 1.1.0
  */
 
 'use strict';
@@ -17,15 +19,38 @@ const MAPS_EMBED_BASE = 'https://maps.google.com/maps';
 /** Default search term for maps — overridden when user requests their booth. */
 const DEFAULT_BOOTH_SEARCH = 'polling+booth+near+me+India';
 
-/** reCAPTCHA site key (v3, replace with your own from console.cloud.google.com). */
-const RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'; // test key
+/** Height in pixels of the rendered Google Maps iframe. */
+const MAPS_IFRAME_HEIGHT = '320';
+
+/** Default zoom level for the Maps embed (city-level view). */
+const MAPS_DEFAULT_ZOOM = 13;
+
+/** DOM id of the Google Translate widget container. */
+const TRANSLATE_CONTAINER_ID = 'google-translate-element';
+
+/** DOM id of the polling booth map panel. */
+const BOOTH_MAP_PANEL_ID = 'booth-map-panel';
+
+/** DOM id of the polling booth map iframe container. */
+const BOOTH_MAP_CONTAINER_ID = 'booth-map-container';
+
+/** DOM id of the reCAPTCHA trust badge container. */
+const RECAPTCHA_BADGE_CONTAINER_ID = 'recaptcha-badge-ui';
+
+/**
+ * reCAPTCHA v3 site key.
+ * Replace with your own from console.cloud.google.com for production.
+ * The test key (below) always passes verification but is marked as test traffic.
+ */
+const RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 
 // ── 1. GOOGLE TRANSLATE WIDGET ─────────────────────────────────────────────
 
 /**
  * Callback invoked by the Google Translate script after it loads.
- * Renders the translation widget into #google-translate-element.
- * Languages chosen to reflect India's official language diversity.
+ * Renders the multilingual translation widget into {@link TRANSLATE_CONTAINER_ID}.
+ * Languages chosen to reflect India's 22 scheduled official languages.
+ * @returns {void}
  */
 function googleTranslateElementInit() {
   if (typeof google === 'undefined' || !google.translate) return;
@@ -33,16 +58,16 @@ function googleTranslateElementInit() {
   /* global google */
   new google.translate.TranslateElement(
     {
-      pageLanguage:    'en',
+      pageLanguage:      'en',
       includedLanguages: 'hi,ta,te,bn,mr,gu,kn,ml,pa,ur,en',
-      layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-      autoDisplay: false,
+      layout:            google.translate.TranslateElement.InlineLayout.SIMPLE,
+      autoDisplay:       false,
     },
-    'google-translate-element'
+    TRANSLATE_CONTAINER_ID
   );
 }
 
-// Expose callback globally so the Translate script can find it
+// Expose callback globally so the Translate script can find it after async load
 if (typeof window !== 'undefined') {
   window.googleTranslateElementInit = googleTranslateElementInit;
 }
@@ -56,33 +81,34 @@ if (typeof window !== 'undefined') {
  */
 function buildMapsEmbedUrl(query = DEFAULT_BOOTH_SEARCH) {
   const encoded = encodeURIComponent(query);
-  return `${MAPS_EMBED_BASE}?q=${encoded}&output=embed&z=13&hl=en`;
+  return `${MAPS_EMBED_BASE}?q=${encoded}&output=embed&z=${MAPS_DEFAULT_ZOOM}&hl=en`;
 }
 
 /**
  * Injects a Google Maps embed iframe into the element with id `containerId`.
- * Creates a safe iframe with sandbox restrictions.
- * @param {string} containerId - DOM id of the container element
- * @param {string} [query]     - Optional search override
+ * Creates a sandboxed iframe — scripts allowed (required by Maps), popups blocked.
+ * @param {string} containerId - DOM id of the target container element
+ * @param {string} [query]     - Optional search term override
+ * @returns {void}
  */
 function renderMapsEmbed(containerId, query) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const url = buildMapsEmbedUrl(query);
+  const url    = buildMapsEmbedUrl(query);
   const iframe = document.createElement('iframe');
 
-  iframe.src             = url;
-  iframe.width           = '100%';
-  iframe.height          = '320';
-  iframe.style.border    = 'none';
+  iframe.src              = url;
+  iframe.width            = '100%';
+  iframe.height           = MAPS_IFRAME_HEIGHT;
+  iframe.style.border     = 'none';
   iframe.style.borderRadius = '12px';
-  iframe.loading         = 'lazy';
-  iframe.allowFullscreen = false;
-  iframe.referrerPolicy  = 'no-referrer-when-downgrade';
-  iframe.title           = 'Find your polling booth on Google Maps';
+  iframe.loading          = 'lazy';
+  iframe.allowFullscreen  = false;
+  iframe.referrerPolicy   = 'no-referrer-when-downgrade';
+  iframe.title            = 'Find your polling booth on Google Maps';
   iframe.setAttribute('aria-label', 'Google Maps polling booth finder');
-  // Sandbox: allow scripts (needed by Maps) but block popups & modals
+  // Sandbox: allow scripts (required by Maps JS) but block popups & top-nav
   iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
 
   container.innerHTML = '';
@@ -90,25 +116,26 @@ function renderMapsEmbed(containerId, query) {
 }
 
 /**
- * Opens the Find Booth panel and renders a Maps embed for the given city.
- * Called from the "Find My Booth" button in index.html.
- * @param {string} [city=''] - Optional city/district name
+ * Opens the polling-booth finder panel and renders a Maps embed for the given city.
+ * Called from the "Find My Booth" quick-reply button in index.html.
+ * @param {string} [city=''] - Optional city or district name to pre-populate the search
+ * @returns {void}
  */
 function findBoothOnMap(city = '') {
   const query = city
     ? `polling booth ${city} India`
     : DEFAULT_BOOTH_SEARCH;
 
-  const panel = document.getElementById('booth-map-panel');
+  const panel = document.getElementById(BOOTH_MAP_PANEL_ID);
   if (panel) {
     panel.hidden = false;
     panel.setAttribute('aria-hidden', 'false');
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  renderMapsEmbed('booth-map-container', query);
+  renderMapsEmbed(BOOTH_MAP_CONTAINER_ID, query);
 
-  // Log to Firebase Analytics
+  // Dual-track analytics: Firebase + GA4
   if (typeof logFirebaseEvent === 'function') {
     logFirebaseEvent('find_booth_map_opened', { city: city || 'default' });
   }
@@ -138,11 +165,12 @@ async function getRecaptchaToken(action = 'chat_send') {
 // ── 4. GOOGLE SAFE BROWSING SIGNAL (UI) ──────────────────────────────────
 
 /**
- * Renders a "Protected by Google" trust badge into the element with id
- * `badgeContainerId`.  Uses the reCAPTCHA branding per Google's guidelines.
- * @param {string} [badgeContainerId='recaptcha-badge-ui']
+ * Renders a "Protected by Google" trust badge into the badge container.
+ * Uses reCAPTCHA branding per Google's display guidelines.
+ * @param {string} [badgeContainerId=RECAPTCHA_BADGE_CONTAINER_ID] - Target element id
+ * @returns {void}
  */
-function renderGoogleTrustBadge(badgeContainerId = 'recaptcha-badge-ui') {
+function renderGoogleTrustBadge(badgeContainerId = RECAPTCHA_BADGE_CONTAINER_ID) {
   const el = document.getElementById(badgeContainerId);
   if (!el) return;
   el.innerHTML = `

@@ -3,7 +3,7 @@
  * @description Pure, side-effect-free helper functions shared across the app.
  *   Each function is independently unit-testable (no DOM or API dependencies).
  * @module utils
- * @version 1.1.0
+ * @version 1.2.0
  */
 
 'use strict';
@@ -51,6 +51,9 @@ function sanitizeInput(str) {
  * Rejects placeholder / example values to avoid leaking quota errors.
  * @param {string} key - API key string to validate
  * @returns {boolean} `true` if the key appears valid
+ * @example
+ * isKeyValid('sk-proj-validLongAPIKeyThatIsReal1234'); // → true
+ * isKeyValid('your_openai_api_key_here');              // → false
  */
 function isKeyValid(key) {
   return (
@@ -95,6 +98,11 @@ function checkRateLimit(state) {
 /**
  * Converts plain-text OpenAI reply (with markdown-like syntax) into
  * sanitised, accessible HTML.
+ *
+ * Processing order matters:
+ *  1. Bold  2. Numbered list → <li>  3. Bullets → <li>  4. Wrap <li> in <ul>
+ *  5. Paragraph / line-break normalisation
+ *
  * @param {string} text - Raw assistant reply
  * @returns {string} Formatted HTML string safe to inject via innerHTML
  */
@@ -104,12 +112,12 @@ function formatReply(text) {
   return text
     // Bold **text**
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Numbered list lines FIRST so they are included in the <ul> wrapping step
+    .replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
     // Bullet lines starting with "- "
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // Wrap consecutive <li> elements in <ul>
-    .replace(/(<li>.*<\/li>\n?)+/gs, match => `<ul>${match}</ul>`)
-    // Numbered list lines (convert to <li>)
-    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    .replace(/^-\s+(.+)$/gm, '<li>$1</li>')
+    // Wrap all consecutive <li> elements in a single <ul>
+    .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, match => `<ul>${match}</ul>`)
     // Double newline → paragraph break
     .replace(/\n{2,}/g, '</p><p>')
     // Single newline → line break
@@ -124,8 +132,12 @@ function formatReply(text) {
 
 /**
  * Categorises a user message into a topic key used for routing and analytics.
+ * Matching is case-insensitive; patterns are ordered by expected query frequency.
  * @param {string} text - Sanitized user message
  * @returns {'vote'|'timeline'|'documents'|'voter-status'|'eligibility'|'booth'|'evm'|'helpline'|'greeting'|'fallback'} Topic key
+ * @example
+ * detectTopic('How do I register to vote?'); // → 'vote'
+ * detectTopic('xyz random text');            // → 'fallback'
  */
 function detectTopic(text) {
   const t = text.toLowerCase().trim();
@@ -145,9 +157,12 @@ function detectTopic(text) {
 // ── CACHE HELPERS ──────────────────────────────────────────────────────────
 
 /**
- * Normalises a string into a stable cache key.
- * @param {string} text - Raw text
- * @returns {string} Lowercase, trimmed cache key
+ * Normalises a string into a stable, case-insensitive cache key.
+ * @param {string} text - Raw text to normalise
+ * @returns {string} Lowercase, trimmed cache key; empty string for non-strings
+ * @example
+ * toCacheKey('  How do I VOTE?  '); // → 'how do i vote?'
+ * toCacheKey(null);                  // → ''
  */
 function toCacheKey(text) {
   return typeof text === 'string' ? text.toLowerCase().trim() : '';

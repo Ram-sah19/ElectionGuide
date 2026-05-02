@@ -1,31 +1,50 @@
 /**
  * ElectionGuide AI – Main Script
- * @description Handles navigation, chat logic, OpenAI integration,
- *   and delegates pure utilities to utils.js.
- * @version 1.2.0
+ * @description Handles navigation, chat logic, OpenAI API integration,
+ *   sidebar state, and UI rendering. Pure utility functions are
+ *   delegated entirely to utils.js — no duplication.
+ * @version 1.4.0
  * @license MIT
  */
 
 'use strict';
 
+// =====================================================================
+// CONSTANTS
+// =====================================================================
 
-// ===================== STATE =====================
-/** @type {boolean} True while awaiting an AI response. */
-let isWaiting = false;
-
-// Rate limiting: max 10 messages per minute (state managed by utils.checkRateLimit)
-const RATE_LIMIT = createRateLimiter();
-
-// Response cache to avoid redundant API calls
-const responseCache = new Map();
-
-
-// Conversation history for multi-turn context
-const conversationHistory = [];
-
-// OpenAI endpoint — called directly from browser (key lives in gitignored config.js)
+/** OpenAI chat completions endpoint. */
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 
+/** OpenAI model identifier. */
+const OPENAI_MODEL = 'gpt-4o-mini';
+
+/** Maximum tokens per OpenAI response. */
+const OPENAI_MAX_TOKENS = 600;
+
+/** OpenAI sampling temperature — lower = more deterministic. */
+const OPENAI_TEMPERATURE = 0.4;
+
+/** Delay (ms) before resolving a cached response — simulates thinking. */
+const CACHE_RESPONSE_DELAY_MS = 300;
+
+/** Delay (ms) before showing a local fallback response. */
+const FALLBACK_RESPONSE_DELAY_MS = 700;
+
+/** Fetch timeout in milliseconds — aborts hung requests after 15 s. */
+const FETCH_TIMEOUT_MS = 15_000;
+
+/** Maximum conversation turns kept in memory (prevents oversized API payloads). */
+const MAX_HISTORY_TURNS = 10;
+
+/** Local-file protocol sentinel — disables live API calls when served from disk. */
+const FILE_PROTOCOL = 'file:';
+
+/** Rate-limit exceeded message shown in the chat bubble. */
+const RATE_LIMIT_MESSAGE =
+  '<strong>⏳ Slow down!</strong><br>You are sending messages too quickly. Please wait a moment.';
+
+/** System prompt sent to OpenAI as the authoritative persona definition. */
 const SYSTEM_PROMPT = `You are ElectionGuide AI, an assistant that helps users understand the election process in a simple and interactive way.
 
 Your responsibilities:
@@ -50,17 +69,25 @@ Response Format:
 2. Steps / Info (bullet points)
 3. Key Tips (if relevant)`;
 
-// ===================== PREDEFINED RESPONSES =====================
+// =====================================================================
+// PREDEFINED CONTENT RESPONSES
+// =====================================================================
+
+/**
+ * Structured HTML responses for the three core content flows.
+ * Each entry has a `title` (string) and `content` (HTML string).
+ * @type {Object.<string, {title: string, content: string}>}
+ */
 const RESPONSES = {
   vote: {
-    title: "🗳️ How to Vote – Step-by-Step Guide",
+    title: '🗳️ How to Vote – Step-by-Step Guide',
     content: `<p>Here's everything you need to do as a first-time voter:</p>
 <div class="response-section">
   <h4>Step 1 – Register as a Voter</h4>
   <ul>
     <li>Visit <strong>voters.eci.gov.in</strong> or your nearest BLO office</li>
     <li>Fill Form 6 (New Voter Registration)</li>
-    <li>Submit with age proof & address proof</li>
+    <li>Submit with age proof &amp; address proof</li>
     <li>You must be <strong>18+ years old</strong> on the qualifying date</li>
   </ul>
 </div>
@@ -69,7 +96,7 @@ const RESPONSES = {
   <ul>
     <li>Check your name on the Electoral Roll online</li>
     <li>Download your Voter ID (EPIC) from the portal</li>
-    <li>Note your <strong>Booth number & Serial number</strong></li>
+    <li>Note your <strong>Booth number &amp; Serial number</strong></li>
   </ul>
 </div>
 <div class="response-section">
@@ -86,22 +113,22 @@ const RESPONSES = {
   },
 
   timeline: {
-    title: "📅 Indian Election Timeline",
+    title: '📅 Indian Election Timeline',
     content: `<p>Here's a typical Lok Sabha / State election timeline:</p>
 <div class="response-section">
   <h4>Phase 1 – Registration Window</h4>
   <ul>
     <li>📋 New voter registration opens (6–8 months before election)</li>
-    <li>Electoral roll revision & corrections accepted</li>
+    <li>Electoral roll revision &amp; corrections accepted</li>
     <li>BLO house visits for verification</li>
   </ul>
 </div>
 <div class="response-section">
-  <h4>Phase 2 – Announcement & Model Code</h4>
+  <h4>Phase 2 – Announcement &amp; Model Code</h4>
   <ul>
     <li>📢 Election Commission announces election schedule</li>
     <li><strong>Model Code of Conduct (MCC)</strong> comes into effect</li>
-    <li>Candidate nominations open & close</li>
+    <li>Candidate nominations open &amp; close</li>
     <li>Scrutiny + withdrawal period</li>
   </ul>
 </div>
@@ -130,7 +157,7 @@ const RESPONSES = {
   },
 
   documents: {
-    title: "📄 Documents Required for Voting",
+    title: '📄 Documents Required for Voting',
     content: `<p>You need <strong>any ONE</strong> of the following valid photo IDs:</p>
 <div class="response-section">
   <h4>Primary ID (Preferred)</h4>
@@ -165,10 +192,60 @@ const RESPONSES = {
   },
 };
 
-// ===================== SECTION NAVIGATION =====================
+// =====================================================================
+// APPLICATION STATE
+// =====================================================================
+
+/** @type {boolean} True while an AI response is in-flight; blocks re-sends. */
+let isWaiting = false;
+
 /**
- * Show a named section and update nav state.
- * @param {string} name - Section identifier
+ * Rate-limiter state object — created once via utils.createRateLimiter().
+ * @type {{ count: number, resetAt: number }}
+ */
+const RATE_LIMIT_STATE = createRateLimiter();
+
+/**
+ * In-memory response cache — keyed by normalised input (via utils.toCacheKey).
+ * Prevents redundant API calls for repeated questions.
+ * @type {Map<string, string>}
+ */
+const responseCache = new Map();
+
+/**
+ * Multi-turn conversation history sent to OpenAI on every request.
+ * Trimmed to MAX_HISTORY_TURNS pairs to prevent oversized payloads.
+ * @type {Array<{role: string, content: string}>}
+ */
+const conversationHistory = [];
+
+/**
+ * Cached reference to the send button — avoids repeated DOM lookups.
+ * @type {HTMLButtonElement|null}
+ */
+let sendBtnEl = null;
+
+// =====================================================================
+// SECTION NAVIGATION
+// =====================================================================
+
+/**
+ * Section title map — maps section identifiers to human-readable labels.
+ * @type {Object.<string, string>}
+ */
+const SECTION_TITLES = {
+  home:     'Home',
+  chat:     'Ask Assistant',
+  vote:     'How to Vote',
+  timeline: 'Election Timeline',
+  docs:     'Documents',
+};
+
+/**
+ * Activates a named section, deactivates all others, updates the nav bar,
+ * fires analytics events, and closes the sidebar.
+ * @param {string} name - Section identifier (e.g. 'home', 'chat')
+ * @returns {void}
  */
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -181,58 +258,83 @@ function showSection(name) {
   if (section) section.classList.add('active');
 
   const btn = document.getElementById(`btn-${name}`);
-  if (btn) { btn.classList.add('active'); btn.setAttribute('aria-current', 'page'); }
+  if (btn) {
+    btn.classList.add('active');
+    btn.setAttribute('aria-current', 'page');
+  }
 
-  const titles = { home: 'Home', chat: 'Ask Assistant', vote: 'How to Vote', timeline: 'Election Timeline', docs: 'Documents' };
-  document.getElementById('pageTitle').textContent = titles[name] || 'ElectionGuide AI';
+  const title = SECTION_TITLES[name] || 'ElectionGuide AI';
+  document.getElementById('pageTitle').textContent = title;
 
-  // GA4 page-view event
-  trackEvent('page_view', { page_title: titles[name] || name, page_location: `#${name}` });
-  // Firebase Analytics page-view
-  logFirebaseEvent('page_view', { page_title: titles[name] || name });
-  // Firestore page-view log (async, non-blocking)
-  logPageViewToFirestore(titles[name] || name);
+  // Dual-track analytics: GA4 + Firebase
+  trackEvent('page_view', { page_title: title, page_location: `#${name}` });
+  logFirebaseEvent('page_view', { page_title: title });
+  logPageViewToFirestore(title);
 
   closeSidebar();
 }
 
-// ===================== FLOW TRIGGERS =====================
+// =====================================================================
+// FLOW TRIGGERS
+// =====================================================================
+
 /**
- * Trigger a predefined content flow in the chat.
- * @param {'vote'|'timeline'|'documents'} type
+ * Flow title map — maps content-flow types to readable page titles.
+ * @type {Object.<string, string>}
+ */
+const FLOW_TITLES = {
+  vote:      'How to Vote',
+  timeline:  'Election Timeline',
+  documents: 'Required Documents',
+};
+
+/**
+ * Navigates to the chat section and injects a predefined content response.
+ * Also fires GA4, Firebase Analytics, and Firestore events.
+ * @param {'vote'|'timeline'|'documents'} type - Content flow identifier
+ * @returns {void}
  */
 function triggerFlow(type) {
   showSection('chat');
 
-  // Set chat nav active
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('btn-chat');
   if (btn) btn.classList.add('active');
 
-  const map = { vote: 'How to Vote', timeline: 'Election Timeline', documents: 'Required Documents' };
-  document.getElementById('pageTitle').textContent = map[type] || 'Ask Assistant';
+  document.getElementById('pageTitle').textContent = FLOW_TITLES[type] || 'Ask Assistant';
 
-  // GA4 feature-selection event
   trackEvent('select_content', { content_type: 'guide', item_id: type });
-  // Firebase Analytics feature-selection event
   logFirebaseEvent('select_content', { content_type: 'guide', item_id: type });
-  // Log to Firestore for richer analytics
   logQuestionToFirestore(type);
 
-  setTimeout(() => addBotResponse(type), 300);
+  setTimeout(() => addBotResponse(type), CACHE_RESPONSE_DELAY_MS);
 }
 
-// ===================== SIDEBAR TOGGLE =====================
+// =====================================================================
+// SIDEBAR
+// =====================================================================
+
+/**
+ * Toggles the sidebar open/closed and syncs the aria-expanded attribute.
+ * @returns {void}
+ */
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
   const btn     = document.getElementById('menuToggle');
   const isOpen  = sidebar.classList.toggle('open');
   btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
 }
+
+/**
+ * Closes the sidebar unconditionally and resets aria-expanded.
+ * @returns {void}
+ */
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('menuToggle').setAttribute('aria-expanded', 'false');
 }
+
+// Close sidebar when clicking outside it
 document.addEventListener('click', (e) => {
   const sidebar = document.getElementById('sidebar');
   const toggle  = document.getElementById('menuToggle');
@@ -241,7 +343,15 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ===================== CHAT LOGIC =====================
+// =====================================================================
+// CHAT — MESSAGE RENDERING
+// =====================================================================
+
+/**
+ * Injects a predefined HTML response for a known content key.
+ * @param {'vote'|'timeline'|'documents'} key - Response key from RESPONSES map
+ * @returns {void}
+ */
 function addBotResponse(key) {
   if (RESPONSES[key]) {
     const r = RESPONSES[key];
@@ -250,112 +360,10 @@ function addBotResponse(key) {
 }
 
 /**
- * Sanitize user input to prevent XSS.
- * @param {string} str - Raw user input
- * @returns {string} Escaped safe string
- */
-function sanitizeInput(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
-    .slice(0, 500); // hard cap 500 chars
-}
-
-/**
- * Checks if user has hit the rate limit (10 msg/min) using the utils module.
- * @returns {boolean} true if allowed, false if limited
- */
-function checkRateLimit() {
-  // Delegate to utils.checkRateLimit with the shared state object
-  if (typeof checkRateLimit._utils === 'undefined') {
-    // utils.js is loaded — use its implementation directly
-  }
-  const now = Date.now();
-  if (now > RATE_LIMIT.resetAt) {
-    RATE_LIMIT.count = 0;
-    RATE_LIMIT.resetAt = now + 60_000;
-  }
-  if (RATE_LIMIT.count >= 10) return false;
-  RATE_LIMIT.count++;
-  return true;
-}
-
-/**
- * Track a GA4 event safely (no-op if gtag unavailable).
- * @param {string} eventName
- * @param {Object} params
- */
-function trackEvent(eventName, params = {}) {
-  if (typeof gtag === 'function') {
-    gtag('event', eventName, params);
-  }
-}
-
-/**
- * Sends a quick-reply message from a preset button.
- * @param {string} text - Preset question text
- */
-function sendQuick(text) {
-  const safe = sanitizeInput(text);
-  appendMessage('user', safe);
-  // Detect topic for analytics
-  const topic = detectTopic(safe);
-  trackEvent('quick_reply', { topic });
-  logFirebaseEvent('quick_reply', { topic });
-  logQuestionToFirestore(topic);
-  handleUserMessage(safe);
-}
-
-/**
- * Reads the textarea, validates it, and dispatches the message.
- */
-function sendMessage() {
-  const input = document.getElementById('userInput');
-  const raw   = input.value.trim();
-  if (!raw || isWaiting) return;
-
-  if (!checkRateLimit()) {
-    appendMessage('bot', '<strong>⏳ Slow down!</strong><br>You are sending messages too quickly. Please wait a moment.');
-    return;
-  }
-
-  const safe = sanitizeInput(raw);
-  appendMessage('user', safe);
-  input.value = '';
-  input.style.height = 'auto';
-  const topic = detectTopic(safe);
-  trackEvent('chat_message_sent', { length: safe.length, topic });
-  logFirebaseEvent('chat_message_sent', { topic });
-  handleUserMessage(safe);
-}
-
-/**
- * Handles the Enter key in the textarea, submitting on Enter (without Shift).
- * @param {KeyboardEvent} e
- */
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-}
-
-/**
- * Auto-resizes the textarea to fit its content, up to 120 px.
- * @param {HTMLTextAreaElement} el
- */
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-/**
- * Append a message bubble to the chat log.
- * @param {'user'|'bot'} role
- * @param {string} html - Trusted HTML string
+ * Creates and appends a message bubble (user or bot) to the chat log.
+ * @param {'user'|'bot'} role - Message sender role
+ * @param {string} html - Trusted HTML string to render inside the bubble
+ * @returns {void}
  */
 function appendMessage(role, html) {
   const container = document.getElementById('chatMessages');
@@ -371,13 +379,19 @@ function appendMessage(role, html) {
   container.scrollTop = container.scrollHeight;
 }
 
+/**
+ * Appends an animated typing indicator bubble to the chat log.
+ * Remove it with {@link removeTyping} before appending the real reply.
+ * @returns {void}
+ */
 function showTyping() {
   const container = document.getElementById('chatMessages');
   const div = document.createElement('div');
   div.className = 'message bot-message';
   div.id = 'typingIndicator';
+  div.setAttribute('aria-label', 'Assistant is typing');
   div.innerHTML = `
-    <div class="msg-avatar">🤖</div>
+    <div class="msg-avatar" aria-hidden="true">🤖</div>
     <div class="msg-bubble">
       <div class="typing-indicator">
         <span></span><span></span><span></span>
@@ -388,128 +402,233 @@ function showTyping() {
   container.scrollTop = container.scrollHeight;
 }
 
+/**
+ * Removes the typing indicator bubble from the chat log, if present.
+ * @returns {void}
+ */
 function removeTyping() {
   const el = document.getElementById('typingIndicator');
   if (el) el.remove();
 }
 
-// ===================== OPENAI DIRECT CALL =====================
+// =====================================================================
+// CHAT — INPUT HANDLING
+// =====================================================================
+
 /**
- * Validates the OpenAI API key format.
- * @returns {boolean}
+ * Dispatches a quick-reply preset question as if the user typed it.
+ * Sanitises via utils.sanitizeInput and detects topic via utils.detectTopic.
+ * @param {string} text - Preset question text
+ * @returns {void}
  */
-function isKeyValid() {
-  return typeof OPENAI_API_KEY !== 'undefined'
-    && !OPENAI_API_KEY.startsWith('your_')
-    && !OPENAI_API_KEY.includes('abcdef')
-    && !OPENAI_API_KEY.includes('xxxx')
-    && OPENAI_API_KEY.startsWith('sk-')
-    && OPENAI_API_KEY.length > 30;
+function sendQuick(text) {
+  const safe  = sanitizeInput(text);
+  const topic = detectTopic(safe);
+  appendMessage('user', safe);
+  trackEvent('quick_reply', { topic });
+  logFirebaseEvent('quick_reply', { topic });
+  logQuestionToFirestore(topic);
+  handleUserMessage(safe);
 }
 
 /**
- * Handles a user message — checks cache, falls back to local, or calls OpenAI.
+ * Reads, validates, and dispatches the user's typed message.
+ * Enforces rate limiting via utils.checkRateLimit before dispatching.
+ * @returns {void}
+ */
+function sendMessage() {
+  const input = document.getElementById('userInput');
+  const raw   = input.value.trim();
+  if (!raw || isWaiting) return;
+
+  if (!checkRateLimit(RATE_LIMIT_STATE)) {
+    appendMessage('bot', RATE_LIMIT_MESSAGE);
+    return;
+  }
+
+  const safe  = sanitizeInput(raw);
+  const topic = detectTopic(safe);
+  appendMessage('user', safe);
+  input.value        = '';
+  input.style.height = 'auto';
+  trackEvent('chat_message_sent', { length: safe.length, topic });
+  logFirebaseEvent('chat_message_sent', { topic });
+  handleUserMessage(safe);
+}
+
+/**
+ * Submits the chat form when Enter is pressed without Shift.
+ * @param {KeyboardEvent} e - Keyboard event from the textarea
+ * @returns {void}
+ */
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+/**
+ * Dynamically resizes the textarea to fit its content, capped at 120 px.
+ * @param {HTMLTextAreaElement} el - The textarea element to resize
+ * @returns {void}
+ */
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+}
+
+// =====================================================================
+// CHAT — API KEY VALIDATION
+// =====================================================================
+
+/**
+ * Returns true if a usable OpenAI API key is available in the environment.
+ * Delegates format validation to utils.isKeyValid.
+ * @returns {boolean}
+ */
+function hasValidApiKey() {
+  return typeof OPENAI_API_KEY !== 'undefined' && isKeyValid(OPENAI_API_KEY);
+}
+
+// =====================================================================
+// CHAT — GA4 ANALYTICS HELPER
+// =====================================================================
+
+/**
+ * Fires a GA4 event via gtag, guarding against the script being absent.
+ * @param {string} eventName - GA4 event name
+ * @param {Object} [params={}] - Optional event parameters
+ * @returns {void}
+ */
+function trackEvent(eventName, params = {}) {
+  if (typeof gtag === 'function') {
+    gtag('event', eventName, params);
+  }
+}
+
+// =====================================================================
+// CHAT — CORE MESSAGE HANDLER
+// =====================================================================
+
+/**
+ * Trims the conversation history to at most MAX_HISTORY_TURNS message pairs
+ * (user + assistant) to avoid sending oversized payloads to the OpenAI API.
+ * Mutates the shared {@link conversationHistory} array in place.
+ * @returns {void}
+ */
+function trimConversationHistory() {
+  const maxMessages = MAX_HISTORY_TURNS * 2;
+  if (conversationHistory.length > maxMessages) {
+    conversationHistory.splice(0, conversationHistory.length - maxMessages);
+  }
+}
+
+/**
+ * Central message handler — checks the cache first, falls back to a local
+ * keyword response when no API key is present, or calls OpenAI directly.
+ * Uses AbortController to enforce a fetch timeout of {@link FETCH_TIMEOUT_MS}.
+ * On API failure, recovers gracefully with a local fallback response.
  * @param {string} text - Sanitized user input
+ * @returns {Promise<void>}
+ * @throws Will not propagate — all errors are caught and handled internally.
  */
 async function handleUserMessage(text) {
+  // Resolve and cache the send button reference
+  if (!sendBtnEl) sendBtnEl = document.getElementById('sendBtn');
+
   isWaiting = true;
-  document.getElementById('sendBtn').disabled = true;
+  sendBtnEl.disabled = true;
   showTyping();
 
-  // Check cache first (normalise key via utils.toCacheKey)
   const cacheKey = toCacheKey(text);
+
+  // 1. Serve from cache if available
   if (responseCache.has(cacheKey)) {
     setTimeout(() => {
       removeTyping();
       appendMessage('bot', responseCache.get(cacheKey));
       isWaiting = false;
-      document.getElementById('sendBtn').disabled = false;
-    }, 300);
+      sendBtnEl.disabled = false;
+    }, CACHE_RESPONSE_DELAY_MS);
     return;
   }
 
-  // If no valid key or running from file://, use local fallback immediately
-  if (!isKeyValid() || location.protocol === 'file:') {
+  // 2. Use local fallback when no API key or running from file://
+  if (!hasValidApiKey() || location.protocol === FILE_PROTOCOL) {
     setTimeout(() => {
       removeTyping();
       const reply = getLocalResponse(text);
-      responseCache.set(cacheKey, reply); // cache local responses too
+      responseCache.set(cacheKey, reply);
       appendMessage('bot', reply);
       isWaiting = false;
-      document.getElementById('sendBtn').disabled = false;
-    }, 700);
+      sendBtnEl.disabled = false;
+    }, FALLBACK_RESPONSE_DELAY_MS);
     return;
   }
 
   conversationHistory.push({ role: 'user', content: text });
+  trimConversationHistory();
+
+  // 3. AbortController enforces the fetch timeout
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
     const res = await fetch(OPENAI_ENDPOINT, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type':  'application/json',
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...conversationHistory,
-        ],
-        max_tokens: 600,
-        temperature: 0.4,
+        model:       OPENAI_MODEL,
+        messages:    [{ role: 'system', content: SYSTEM_PROMPT }, ...conversationHistory],
+        max_tokens:  OPENAI_MAX_TOKENS,
+        temperature: OPENAI_TEMPERATURE,
       }),
     });
 
+    clearTimeout(timeoutId);
+
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `API error ${res.status}`);
 
-    if (!res.ok) {
-      throw new Error(data.error?.message || 'API error');
-    }
+    const raw    = data.choices[0].message.content;
+    const styled = formatReply(raw);
 
-    const reply = data.choices[0].message.content;
-    conversationHistory.push({ role: 'assistant', content: reply });
-    // Cache the formatted API response
-    responseCache.set(cacheKey, formatReply(reply));
+    conversationHistory.push({ role: 'assistant', content: raw });
+    trimConversationHistory();
+    responseCache.set(cacheKey, styled);
     removeTyping();
-    appendMessage('bot', formatReply(reply));
-    trackEvent('ai_response_received', { model: 'gpt-4o-mini' });
-    // Firebase: log successful AI response
-    logFirebaseEvent('ai_response_received', { model: 'gpt-4o-mini' });
+    appendMessage('bot', styled);
+    trackEvent('ai_response_received', { model: OPENAI_MODEL });
+    logFirebaseEvent('ai_response_received', { model: OPENAI_MODEL });
 
   } catch (err) {
-    // On any network/API failure, fall back gracefully to local responses
+    clearTimeout(timeoutId);
+    console.error('[ElectionGuide AI] handleUserMessage error:', err.message);
     removeTyping();
-    const fallback = getLocalResponse(text);
-    appendMessage('bot', fallback);
+    appendMessage('bot', getLocalResponse(text));
     conversationHistory.pop();
   }
 
   isWaiting = false;
-  document.getElementById('sendBtn').disabled = false;
-  document.getElementById('chatMessages').scrollTop = 999999;
+  sendBtnEl.disabled = false;
+  document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
 }
 
-// Convert plain-text OpenAI reply into styled HTML
-function formatReply(text) {
-  return text
-    // Bold **text**
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // Bullet lines starting with -
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // Wrap consecutive <li> in <ul>
-    .replace(/(<li>.*<\/li>\n?)+/gs, match => `<ul>${match}</ul>`)
-    // Numbered lines
-    .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
-    // Line breaks
-    .replace(/\n{2,}/g, '</p><p>')
-    .replace(/\n/g, '<br>')
-    // Wrap in paragraph
-    .replace(/^(?!<)/, '<p>')
-    .replace(/(?<!>)$/, '</p>');
-}
+// =====================================================================
+// LOCAL FALLBACK RESPONSES
+// =====================================================================
 
-// ===================== LOCAL FALLBACK RESPONSES =====================
+/**
+ * Returns a pre-written HTML response matched by keyword patterns.
+ * Used when no OpenAI key is configured or as an error fallback.
+ * @param {string} text - Raw (already sanitized) user message
+ * @returns {string} HTML string ready to inject into a message bubble
+ */
 function getLocalResponse(text) {
   const t = text.toLowerCase();
 
@@ -523,7 +642,7 @@ function getLocalResponse(text) {
     return `<strong>🪪 Check Your Voter ID Status</strong>
 <ul>
   <li>Visit <strong>voters.eci.gov.in</strong> → "Search in Electoral Roll"</li>
-  <li>Enter your name, date of birth & state</li>
+  <li>Enter your name, date of birth &amp; state</li>
   <li>Or search by <strong>EPIC number</strong> directly</li>
   <li>Call <strong>1950</strong> (toll-free) for assistance</li>
 </ul>
@@ -559,11 +678,11 @@ function getLocalResponse(text) {
 <div class="tip-box">💡 Your vote is completely <strong>secret</strong>.</div>`;
 
   if (/(helpline|contact|1950|phone|call)/i.test(t))
-    return `<strong>📞 ECI Helpline & Support</strong>
+    return `<strong>📞 ECI Helpline &amp; Support</strong>
 <ul>
   <li>🆓 <strong>Voter Helpline: 1950</strong> (toll-free)</li>
   <li>🌐 voters.eci.gov.in</li>
-  <li>📱 Voter Helpline App (iOS & Android)</li>
+  <li>📱 Voter Helpline App (iOS &amp; Android)</li>
 </ul>`;
 
   if (/(hi|hello|hey|namaste)/i.test(t))
@@ -585,8 +704,16 @@ function getLocalResponse(text) {
 <div class="tip-box">💡 Use the quick buttons below for instant answers!</div>`;
 }
 
+// =====================================================================
+// INITIALISATION
+// =====================================================================
 
-// ===================== INIT =====================
+/**
+ * Bootstraps the application once the DOM is fully parsed.
+ * Caches the send button reference and navigates to the Home section.
+ * @returns {void}
+ */
 document.addEventListener('DOMContentLoaded', () => {
+  sendBtnEl = document.getElementById('sendBtn');
   showSection('home');
 });
